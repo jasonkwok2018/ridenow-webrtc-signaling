@@ -1,6 +1,7 @@
 const express = require('express')
 const { createServer } = require('http')
 const { Server } = require('socket.io')
+const WebSocket = require('ws')
 const cors = require('cors')
 
 const app = express()
@@ -31,15 +32,123 @@ const io = new Server(server, {
 // 存储在线用户
 const onlineUsers = new Map()
 
+// 创建原生WebSocket服务器
+const wss = new WebSocket.Server({
+    server,
+    path: '/ws'
+})
+
+// WebSocket连接处理
+wss.on('connection', (ws, req) => {
+    console.log('🔗 新的WebSocket连接')
+
+    let userId = null
+
+    ws.on('message', (data) => {
+        try {
+            const message = JSON.parse(data.toString())
+            console.log('📨 WebSocket收到消息:', message.type)
+
+            switch (message.type) {
+                case 'register':
+                    userId = message.userId || `user_${Date.now()}`
+                    const user = {
+                        id: userId,
+                        userType: message.userType,
+                        location: message.location,
+                        ws: ws,
+                        lastSeen: Date.now()
+                    }
+                    onlineUsers.set(userId, user)
+                    console.log(`✅ 用户注册: ${userId} (${message.userType})`)
+
+                    // 发送注册确认
+                    ws.send(JSON.stringify({
+                        type: 'registered',
+                        userId: userId,
+                        userType: message.userType
+                    }))
+
+                    // 如果是乘客，发送司机列表
+                    if (message.userType === 'rider') {
+                        broadcastDriversToRider(ws)
+                    }
+                    break
+
+                case 'location-update':
+                    if (userId && onlineUsers.has(userId)) {
+                        const user = onlineUsers.get(userId)
+                        user.location = message.location
+                        user.lastSeen = Date.now()
+                        console.log(`📍 位置更新: ${userId}`)
+
+                        // 广播位置更新
+                        if (user.userType === 'driver') {
+                            broadcastDriverLocationToRiders(user)
+                        }
+                    }
+                    break
+
+                default:
+                    console.log('❓ 未知消息类型:', message.type)
+            }
+        } catch (error) {
+            console.error('❌ WebSocket消息解析错误:', error)
+        }
+    })
+
+    ws.on('close', () => {
+        if (userId) {
+            onlineUsers.delete(userId)
+            console.log(`👋 用户断开连接: ${userId}`)
+        }
+    })
+
+    ws.on('error', (error) => {
+        console.error('❌ WebSocket错误:', error)
+    })
+})
+
+// 向乘客广播司机列表
+function broadcastDriversToRider(riderWs) {
+    const drivers = Array.from(onlineUsers.values())
+        .filter(user => user.userType === 'driver' && user.location)
+        .map(driver => ({
+            id: driver.id,
+            location: driver.location,
+            lastSeen: driver.lastSeen
+        }))
+
+    riderWs.send(JSON.stringify({
+        type: 'drivers-list',
+        drivers: drivers
+    }))
+}
+
+// 向所有乘客广播司机位置更新
+function broadcastDriverLocationToRiders(driver) {
+    const riders = Array.from(onlineUsers.values())
+        .filter(user => user.userType === 'rider' && user.ws)
+
+    riders.forEach(rider => {
+        rider.ws.send(JSON.stringify({
+            type: 'driver-location-update',
+            driverId: driver.id,
+            location: driver.location
+        }))
+    })
+}
+
 // 健康检查端点
 app.get('/', (req, res) => {
     res.json({
         status: 'WebRTC Signaling Server Running',
         onlineUsers: onlineUsers.size,
         timestamp: new Date().toISOString(),
-        version: '1.2.0',
+        version: '1.3.0',
         socketIO: 'enabled',
-        transports: ['websocket', 'polling']
+        nativeWebSocket: 'enabled',
+        transports: ['websocket', 'polling', 'native-ws']
     })
 })
 
