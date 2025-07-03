@@ -173,16 +173,24 @@ app.post('/api/driver-status', (req, res) => {
 
     console.log(`🚗 司机状态更新: ${driverId} -> 在线:${isOnline}, 状态:${status}`)
 
-    // 模拟更新成功
+    // 模拟更新成功 - 包含iOS应用期望的所有字段
     res.json({
         success: true,
         message: '司机状态更新成功',
         driver: {
             id: driverId,
+            name: `司机 ${driverId.slice(-3)}`, // 添加name字段
+            phone: "+61 400000000",
+            vehicleType: "sedan",
+            vehicleMake: "Toyota",
+            vehicleModel: "Camry",
+            licensePlate: `SF-${Math.floor(Math.random() * 1000)}`,
+            rating: 4.8,
             isOnline: isOnline,
             status: status || 'available',
-            latitude: latitude,
-            longitude: longitude,
+            latitude: latitude || 37.7749,
+            longitude: longitude || -122.4194,
+            heading: 0,
             lastUpdated: new Date().toISOString()
         }
     })
