@@ -124,6 +124,9 @@ app.get('/api/nearby-drivers', (req, res) => {
     const searchRadius = parseFloat(radius)
 
     // 动态生成附近司机
+    console.log(`🔍 用户位置: (${userLatitude.toFixed(4)}, ${userLongitude.toFixed(4)})`)
+    console.log(`📏 搜索半径: ${searchRadius}米`)
+
     const nearbyDrivers = generateNearbyDrivers(userLatitude, userLongitude, searchRadius)
         .map(driver => ({
             ...driver,
@@ -132,6 +135,11 @@ app.get('/api/nearby-drivers', (req, res) => {
                 driver.latitude, driver.longitude
             ))
         }))
+
+    console.log(`🚗 生成了 ${nearbyDrivers.length} 个司机`)
+    nearbyDrivers.forEach((driver, index) => {
+        console.log(`  司机${index + 1}: (${driver.latitude.toFixed(4)}, ${driver.longitude.toFixed(4)}) 距离: ${driver.distance}m`)
+    })
 
     console.log(`📍 附近司机查询: (${userLatitude.toFixed(3)}, ${userLongitude.toFixed(3)}) 找到 ${nearbyDrivers.length} 个司机`)
 
