@@ -31,7 +31,8 @@ app.get('/', (req, res) => {
     res.json({
         status: 'WebRTC Signaling Server Running',
         onlineUsers: onlineUsers.size,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        version: '1.1.0'
     })
 })
 
