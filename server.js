@@ -150,6 +150,16 @@ app.get('/api/nearby-drivers', (req, res) => {
     })
 })
 
+// 司机状态查询 (GET) - 用于测试
+app.get('/api/driver-status', (req, res) => {
+    res.json({
+        success: true,
+        message: '司机状态API端点正常工作',
+        info: 'POST请求用于更新状态，GET请求用于测试',
+        timestamp: new Date().toISOString()
+    })
+})
+
 // 司机状态更新 (POST)
 app.post('/api/driver-status', (req, res) => {
     const { driverId, isOnline, status, latitude, longitude } = req.body
