@@ -15,12 +15,17 @@ app.use(cors({
 // 解析JSON请求体
 app.use(express.json())
 
-// Socket.IO配置
+// Socket.IO配置 - 针对Render优化
 const io = new Server(server, {
     cors: {
         origin: "*",
-        methods: ["GET", "POST"]
-    }
+        methods: ["GET", "POST"],
+        credentials: false
+    },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000
 })
 
 // 存储在线用户
@@ -32,7 +37,22 @@ app.get('/', (req, res) => {
         status: 'WebRTC Signaling Server Running',
         onlineUsers: onlineUsers.size,
         timestamp: new Date().toISOString(),
-        version: '1.1.0'
+        version: '1.2.0',
+        socketIO: 'enabled',
+        transports: ['websocket', 'polling']
+    })
+})
+
+// Socket.IO健康检查
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        socketIO: {
+            enabled: true,
+            connections: onlineUsers.size,
+            transports: ['websocket', 'polling']
+        },
+        timestamp: new Date().toISOString()
     })
 })
 
@@ -238,7 +258,18 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
 // WebSocket连接处理
 io.on('connection', (socket) => {
-    console.log(`🔗 新连接: ${socket.id}`)
+    console.log(`🔗 新连接: ${socket.id} from ${socket.handshake.address}`)
+
+    // 连接错误处理
+    socket.on('connect_error', (error) => {
+        console.log(`❌ 连接错误: ${socket.id} - ${error.message}`)
+    })
+
+    socket.on('disconnect', (reason) => {
+        console.log(`🔌 连接断开: ${socket.id} - ${reason}`)
+        onlineUsers.delete(socket.id)
+        broadcastUserList()
+    })
 
     // 用户注册
     socket.on('register', (data) => {
