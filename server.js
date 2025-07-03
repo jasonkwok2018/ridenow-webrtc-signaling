@@ -58,57 +58,56 @@ app.get('/health', (req, res) => {
     })
 })
 
-// 模拟司机数据
-const mockDrivers = [
-    {
-        id: "driver_1",
-        name: "James Smith",
-        phone: "+61 412 345 678",
-        vehicleType: "sedan",
-        vehicleMake: "Toyota",
-        vehicleModel: "Camry",
-        licensePlate: "ABC-123",
-        rating: 4.8,
-        isOnline: true,
-        status: "available",
-        latitude: -37.813,
-        longitude: 144.963,
-        heading: 45.0,
-        lastUpdated: new Date().toISOString()
-    },
-    {
-        id: "driver_2",
-        name: "Sarah Johnson",
-        phone: "+61 423 456 789",
-        vehicleType: "sedan",
-        vehicleMake: "Honda",
-        vehicleModel: "Accord",
-        licensePlate: "XYZ-789",
-        rating: 4.9,
-        isOnline: true,
-        status: "available",
-        latitude: -37.814,
-        longitude: 144.964,
-        heading: 120.0,
-        lastUpdated: new Date().toISOString()
-    },
-    {
-        id: "driver_sf_1",
-        name: "Robert Kim",
-        phone: "+1 415 567 8901",
-        vehicleType: "sedan",
-        vehicleMake: "BMW",
-        vehicleModel: "3 Series",
-        licensePlate: "CA-SF005",
-        rating: 4.8,
-        isOnline: true,
-        status: "available",
-        latitude: 37.61323,
-        longitude: -122.480836,
-        heading: 135.0,
-        lastUpdated: new Date().toISOString()
+// 动态生成附近司机的函数
+function generateNearbyDrivers(userLat, userLng, radius = 1000) {
+    const drivers = []
+    const driverCount = Math.floor(Math.random() * 4) + 2 // 2-5个司机
+
+    const driverNames = [
+        "James Smith", "Sarah Johnson", "Robert Kim", "Emily Chen",
+        "Michael Brown", "Lisa Wang", "David Wilson", "Anna Lee"
+    ]
+
+    const vehicleData = [
+        { type: "sedan", make: "Toyota", model: "Camry" },
+        { type: "sedan", make: "Honda", model: "Accord" },
+        { type: "sedan", make: "BMW", model: "3 Series" },
+        { type: "suv", make: "Mazda", model: "CX-5" },
+        { type: "sedan", make: "Hyundai", model: "Elantra" }
+    ]
+
+    for (let i = 0; i < driverCount; i++) {
+        // 在用户位置方圆radius米内随机生成司机位置
+        const radiusInDegrees = radius / 111000 // 大约111km = 1度
+        const randomAngle = Math.random() * 2 * Math.PI
+        const randomDistance = Math.random() * radiusInDegrees
+
+        const driverLat = userLat + (randomDistance * Math.cos(randomAngle))
+        const driverLng = userLng + (randomDistance * Math.sin(randomAngle))
+
+        const vehicle = vehicleData[Math.floor(Math.random() * vehicleData.length)]
+        const name = driverNames[Math.floor(Math.random() * driverNames.length)]
+
+        drivers.push({
+            id: `driver_${Date.now()}_${i}`,
+            name: name,
+            phone: `+61 4${Math.floor(Math.random() * 90000000) + 10000000}`,
+            vehicleType: vehicle.type,
+            vehicleMake: vehicle.make,
+            vehicleModel: vehicle.model,
+            licensePlate: `${String.fromCharCode(65 + Math.floor(Math.random() * 26))}${String.fromCharCode(65 + Math.floor(Math.random() * 26))}${String.fromCharCode(65 + Math.floor(Math.random() * 26))}-${Math.floor(Math.random() * 900) + 100}`,
+            rating: Math.round((Math.random() * 1.5 + 4.0) * 10) / 10, // 4.0-5.0
+            isOnline: true,
+            status: "available",
+            latitude: driverLat,
+            longitude: driverLng,
+            heading: Math.floor(Math.random() * 360),
+            lastUpdated: new Date().toISOString()
+        })
     }
-]
+
+    return drivers
+}
 
 // API路由
 
@@ -124,23 +123,15 @@ app.get('/api/nearby-drivers', (req, res) => {
     const userLongitude = parseFloat(userLng)
     const searchRadius = parseFloat(radius)
 
-    // 简单的距离过滤
-    const nearbyDrivers = mockDrivers.filter(driver => {
-        if (!driver.isOnline || driver.status !== 'available') return false
-
-        const distance = calculateDistance(
-            userLatitude, userLongitude,
-            driver.latitude, driver.longitude
-        )
-
-        return distance <= searchRadius
-    }).map(driver => ({
-        ...driver,
-        distance: Math.round(calculateDistance(
-            userLatitude, userLongitude,
-            driver.latitude, driver.longitude
-        ))
-    }))
+    // 动态生成附近司机
+    const nearbyDrivers = generateNearbyDrivers(userLatitude, userLongitude, searchRadius)
+        .map(driver => ({
+            ...driver,
+            distance: Math.round(calculateDistance(
+                userLatitude, userLongitude,
+                driver.latitude, driver.longitude
+            ))
+        }))
 
     console.log(`📍 附近司机查询: (${userLatitude.toFixed(3)}, ${userLongitude.toFixed(3)}) 找到 ${nearbyDrivers.length} 个司机`)
 
