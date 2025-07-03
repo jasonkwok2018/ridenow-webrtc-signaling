@@ -150,6 +150,34 @@ app.get('/api/nearby-drivers', (req, res) => {
     })
 })
 
+// 司机状态更新 (POST)
+app.post('/api/driver-status', (req, res) => {
+    const { driverId, isOnline, status, latitude, longitude } = req.body
+
+    if (!driverId) {
+        return res.status(400).json({
+            success: false,
+            message: '需要司机ID'
+        })
+    }
+
+    console.log(`🚗 司机状态更新: ${driverId} -> 在线:${isOnline}, 状态:${status}`)
+
+    // 模拟更新成功
+    res.json({
+        success: true,
+        message: '司机状态更新成功',
+        driver: {
+            id: driverId,
+            isOnline: isOnline,
+            status: status || 'available',
+            latitude: latitude,
+            longitude: longitude,
+            lastUpdated: new Date().toISOString()
+        }
+    })
+})
+
 // 司机状态变化通知
 app.get('/api/driver-status-changes', (req, res) => {
     const { lastUpdate = '0' } = req.query
