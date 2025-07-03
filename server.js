@@ -71,8 +71,8 @@ const mockDrivers = [
         rating: 4.8,
         isOnline: true,
         status: "available",
-        latitude: -33.8688,
-        longitude: 151.2093,
+        latitude: -37.813,
+        longitude: 144.963,
         heading: 45.0,
         lastUpdated: new Date().toISOString()
     },
@@ -87,8 +87,8 @@ const mockDrivers = [
         rating: 4.9,
         isOnline: true,
         status: "available",
-        latitude: -33.8650,
-        longitude: 151.2094,
+        latitude: -37.814,
+        longitude: 144.964,
         heading: 120.0,
         lastUpdated: new Date().toISOString()
     },
