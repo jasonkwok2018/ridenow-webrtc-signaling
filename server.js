@@ -61,6 +61,11 @@ wss.on('connection', (ws, req) => {
                     }
                     onlineUsers.set(userId, user)
                     console.log(`✅ 用户注册: ${userId} (${message.userType})`)
+                    if (message.location) {
+                        console.log(`📍 注册位置: (${message.location.latitude}, ${message.location.longitude})`)
+                    } else {
+                        console.log(`⚠️ 注册时没有位置信息`)
+                    }
 
                     // 发送注册确认
                     ws.send(JSON.stringify({
@@ -87,6 +92,62 @@ wss.on('connection', (ws, req) => {
                             broadcastDriverLocationToRiders(user)
                         }
                     }
+                    break
+
+                case 'request_ride':
+                    console.log('🚗 [WebSocket] 收到乘客订单请求:', message)
+                    const pickupLocation = {
+                        latitude: message.pickup_latitude,
+                        longitude: message.pickup_longitude
+                    }
+                    const nearbyDrivers = findNearbyDriversWS(pickupLocation, 5000) // 5km范围
+
+                    if (nearbyDrivers.length > 0) {
+                        // 向最近的司机发送订单请求
+                        const closestDriver = nearbyDrivers[0]
+                        console.log(`📤 [WebSocket] 向司机 ${closestDriver.id} 发送订单请求`)
+
+                        closestDriver.ws.send(JSON.stringify({
+                            type: 'ride_request',
+                            ride_id: message.ride_id,
+                            rider_id: userId,
+                            pickup_latitude: message.pickup_latitude,
+                            pickup_longitude: message.pickup_longitude,
+                            destination_latitude: message.destination_latitude,
+                            destination_longitude: message.destination_longitude,
+                            pickup_address: message.pickup_address || '未知地址',
+                            destination_address: message.destination_address || '未知地址',
+                            estimated_fare: message.estimated_fare,
+                            estimated_duration: 15, // 默认15分钟
+                            passenger_name: '乘客', // 默认名称
+                            timestamp: message.timestamp
+                        }))
+                    } else {
+                        console.log('❌ [WebSocket] 没有可用司机')
+                        ws.send(JSON.stringify({
+                            type: 'no_drivers_available'
+                        }))
+                    }
+                    break
+
+                case 'accept_ride':
+                    console.log('✅ [WebSocket] 司机接受订单:', message)
+                    // 找到乘客并通知
+                    const rider = onlineUsers.get(message.rider_id)
+                    if (rider && rider.ws) {
+                        rider.ws.send(JSON.stringify({
+                            type: 'ride_accepted',
+                            driver_id: userId,
+                            ride_id: message.ride_id,
+                            estimated_arrival: message.estimated_arrival || 10,
+                            timestamp: message.timestamp
+                        }))
+                    }
+                    break
+
+                case 'decline_ride':
+                    console.log('❌ [WebSocket] 司机拒绝订单:', message)
+                    // 可以在这里实现重新分配给其他司机的逻辑
                     break
 
                 default:
@@ -139,6 +200,49 @@ function broadcastDriverLocationToRiders(driver) {
     })
 }
 
+// WebSocket版本：查找附近司机
+function findNearbyDriversWS(pickupLocation, radiusMeters = 5000) {
+    console.log(`🔍 [WebSocket] 查找附近司机，乘客位置: (${pickupLocation.latitude}, ${pickupLocation.longitude})`)
+
+    const allUsers = Array.from(onlineUsers.values())
+    console.log(`👥 [WebSocket] 总在线用户: ${allUsers.length}`)
+
+    const driversWithLocation = allUsers.filter(user => {
+        const isDriver = user.userType === 'driver'
+        const hasLocation = user.location && user.location.latitude && user.location.longitude
+        const hasWs = user.ws
+
+        console.log(`🚗 [WebSocket] 用户 ${user.id}: 类型=${user.userType}, 有位置=${hasLocation}, 有连接=${!!hasWs}`)
+        if (hasLocation) {
+            console.log(`📍 [WebSocket] 用户位置: (${user.location.latitude}, ${user.location.longitude})`)
+        }
+
+        return isDriver && hasLocation && hasWs
+    })
+
+    console.log(`🚗 [WebSocket] 有位置的司机: ${driversWithLocation.length}`)
+
+    const drivers = driversWithLocation
+        .map(driver => {
+            // 确保坐标是数字类型
+            const pickupLat = parseFloat(pickupLocation.latitude)
+            const pickupLng = parseFloat(pickupLocation.longitude)
+            const driverLat = parseFloat(driver.location.latitude)
+            const driverLng = parseFloat(driver.location.longitude)
+
+            console.log(`📏 [WebSocket] 计算距离: 乘客(${pickupLat}, ${pickupLng}) -> 司机(${driverLat}, ${driverLng})`)
+
+            const distance = calculateDistance(pickupLat, pickupLng, driverLat, driverLng)
+            console.log(`📏 [WebSocket] 司机 ${driver.id} 距离: ${distance}米`)
+            return { ...driver, distance }
+        })
+        .filter(driver => driver.distance <= radiusMeters)
+        .sort((a, b) => a.distance - b.distance)
+
+    console.log(`🔍 [WebSocket] 找到 ${drivers.length} 个附近司机 (半径${radiusMeters}米)`)
+    return drivers
+}
+
 // 健康检查端点
 app.get('/', (req, res) => {
     res.json({
@@ -150,6 +254,49 @@ app.get('/', (req, res) => {
         nativeWebSocket: 'enabled',
         transports: ['websocket', 'polling', 'native-ws']
     })
+})
+
+// 清理过期用户端点
+app.post('/cleanup', (req, res) => {
+    const beforeCount = onlineUsers.size
+    const now = Date.now()
+    const expiredTime = 5 * 60 * 1000 // 5分钟过期
+
+    // 清理过期用户
+    for (const [userId, user] of onlineUsers.entries()) {
+        if (now - user.lastSeen > expiredTime) {
+            onlineUsers.delete(userId)
+            console.log(`🧹 清理过期用户: ${userId}`)
+        }
+    }
+
+    const afterCount = onlineUsers.size
+    const cleanedCount = beforeCount - afterCount
+
+    res.json({
+        status: 'cleanup completed',
+        beforeCount,
+        afterCount,
+        cleanedCount,
+        timestamp: new Date().toISOString()
+    })
+
+    console.log(`🧹 清理完成: 清理了 ${cleanedCount} 个过期用户`)
+})
+
+// 强制清理所有用户端点（仅用于开发测试）
+app.post('/reset', (req, res) => {
+    const beforeCount = onlineUsers.size
+    onlineUsers.clear()
+
+    res.json({
+        status: 'all users cleared',
+        beforeCount,
+        afterCount: 0,
+        timestamp: new Date().toISOString()
+    })
+
+    console.log(`🧹 强制清理: 清理了 ${beforeCount} 个用户`)
 })
 
 // Socket.IO健康检查
@@ -413,53 +560,129 @@ io.on('connection', (socket) => {
         }
     })
 
-    // WebRTC信令消息转发
+    // WebRTC信令消息转发 - 增强版
     socket.on('offer', (data) => {
-        console.log(`📤 转发offer: ${socket.id} -> ${data.targetId}`)
-        socket.to(data.targetId).emit('offer', {
-            offer: data.offer,
-            fromId: socket.id
-        })
+        console.log(`📤 [WebRTC] 转发offer: ${socket.id} -> ${data.targetId}`)
+        const targetUser = onlineUsers.get(data.targetId)
+        if (targetUser) {
+            socket.to(data.targetId).emit('offer', {
+                offer: data.offer,
+                fromId: socket.id,
+                timestamp: Date.now()
+            })
+            console.log(`✅ [WebRTC] Offer已转发给 ${data.targetId}`)
+        } else {
+            console.log(`❌ [WebRTC] 目标用户 ${data.targetId} 不在线`)
+            socket.emit('user_not_found', { targetId: data.targetId })
+        }
     })
 
     socket.on('answer', (data) => {
-        console.log(`📤 转发answer: ${socket.id} -> ${data.targetId}`)
-        socket.to(data.targetId).emit('answer', {
-            answer: data.answer,
-            fromId: socket.id
-        })
+        console.log(`📤 [WebRTC] 转发answer: ${socket.id} -> ${data.targetId}`)
+        const targetUser = onlineUsers.get(data.targetId)
+        if (targetUser) {
+            socket.to(data.targetId).emit('answer', {
+                answer: data.answer,
+                fromId: socket.id,
+                timestamp: Date.now()
+            })
+            console.log(`✅ [WebRTC] Answer已转发给 ${data.targetId}`)
+        } else {
+            console.log(`❌ [WebRTC] 目标用户 ${data.targetId} 不在线`)
+            socket.emit('user_not_found', { targetId: data.targetId })
+        }
     })
 
     socket.on('ice-candidate', (data) => {
-        socket.to(data.targetId).emit('ice-candidate', {
-            candidate: data.candidate,
-            fromId: socket.id
-        })
+        console.log(`📤 [WebRTC] 转发ICE候选者: ${socket.id} -> ${data.targetId}`)
+        const targetUser = onlineUsers.get(data.targetId)
+        if (targetUser) {
+            socket.to(data.targetId).emit('ice-candidate', {
+                candidate: data.candidate,
+                fromId: socket.id,
+                timestamp: Date.now()
+            })
+        } else {
+            console.log(`❌ [WebRTC] 目标用户 ${data.targetId} 不在线`)
+        }
     })
 
-    // 订单匹配请求
-    socket.on('request-ride', (data) => {
-        const nearbyDrivers = findNearbyDrivers(data.pickup, 5000) // 5km范围
+    // P2P订单消息转发（当WebRTC DataChannel不可用时的备用方案）
+    socket.on('p2p_order_request', (data) => {
+        console.log(`📋 [P2P] 转发订单请求: ${socket.id} -> ${data.targetId}`)
+        const targetUser = onlineUsers.get(data.targetId)
+        if (targetUser) {
+            socket.to(data.targetId).emit('p2p_order_request', {
+                orderRequest: data.orderRequest,
+                fromId: socket.id,
+                timestamp: Date.now()
+            })
+            console.log(`✅ [P2P] 订单请求已转发给司机 ${data.targetId}`)
+        } else {
+            console.log(`❌ [P2P] 司机 ${data.targetId} 不在线`)
+            socket.emit('driver_not_available', { driverId: data.targetId })
+        }
+    })
+
+    socket.on('p2p_order_response', (data) => {
+        console.log(`📋 [P2P] 转发订单响应: ${socket.id} -> ${data.targetId}`)
+        const targetUser = onlineUsers.get(data.targetId)
+        if (targetUser) {
+            socket.to(data.targetId).emit('p2p_order_response', {
+                orderResponse: data.orderResponse,
+                fromId: socket.id,
+                timestamp: Date.now()
+            })
+            console.log(`✅ [P2P] 订单响应已转发给乘客 ${data.targetId}`)
+        } else {
+            console.log(`❌ [P2P] 乘客 ${data.targetId} 不在线`)
+        }
+    })
+
+    // 订单匹配请求 - 修复消息类型匹配问题
+    socket.on('request_ride', (data) => {
+        console.log('🚗 收到乘客订单请求:', data)
+        const pickupLocation = {
+            latitude: data.pickup_latitude,
+            longitude: data.pickup_longitude
+        }
+        const nearbyDrivers = findNearbyDrivers(pickupLocation, 5000) // 5km范围
 
         if (nearbyDrivers.length > 0) {
             // 向最近的司机发送订单请求
             const closestDriver = nearbyDrivers[0]
-            socket.to(closestDriver.id).emit('ride-request', {
-                riderId: socket.id,
-                pickup: data.pickup,
-                destination: data.destination,
-                estimatedFare: data.estimatedFare
+            console.log(`📤 向司机 ${closestDriver.id} 发送订单请求`)
+
+            socket.to(closestDriver.id).emit('ride_request', {
+                type: 'ride_request',
+                ride_id: data.ride_id,
+                rider_id: socket.id,
+                pickup_latitude: data.pickup_latitude,
+                pickup_longitude: data.pickup_longitude,
+                destination_latitude: data.destination_latitude,
+                destination_longitude: data.destination_longitude,
+                pickup_address: data.pickup_address || '未知地址',
+                destination_address: data.destination_address || '未知地址',
+                estimated_fare: data.estimated_fare,
+                estimated_duration: 15, // 默认15分钟
+                passenger_name: '乘客', // 默认名称
+                timestamp: data.timestamp
             })
         } else {
-            socket.emit('no-drivers-available')
+            console.log('❌ 没有可用司机')
+            socket.emit('no_drivers_available')
         }
     })
 
-    // 司机接受订单
-    socket.on('accept-ride', (data) => {
-        socket.to(data.riderId).emit('ride-accepted', {
-            driverId: socket.id,
-            estimatedArrival: data.estimatedArrival
+    // 司机接受订单 - 修复消息类型匹配问题
+    socket.on('accept_ride', (data) => {
+        console.log('✅ 司机接受订单:', data)
+        socket.to(data.rider_id).emit('ride_accepted', {
+            type: 'ride_accepted',
+            driver_id: socket.id,
+            ride_id: data.ride_id,
+            estimated_arrival: data.estimated_arrival || 10,
+            timestamp: data.timestamp
         })
     })
 
