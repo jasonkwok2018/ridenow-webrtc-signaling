@@ -745,11 +745,23 @@ function calculateDistance(pos1, pos2) {
     return R * c
 }
 
+// 防止Render休眠的保活机制
+function keepAlive() {
+    setInterval(() => {
+        const now = new Date().toISOString()
+        console.log(`💓 [${now}] 保活心跳 - 在线用户: ${onlineUsers.size}`)
+    }, 10 * 60 * 1000) // 每10分钟发送一次心跳
+}
+
 // 启动服务器
 const PORT = process.env.PORT || 3000
 server.listen(PORT, () => {
     console.log(`🚀 信令服务器运行在端口 ${PORT}`)
     console.log(`📊 状态页面: http://localhost:${PORT}`)
+
+    // 启动保活机制
+    keepAlive()
+    console.log(`💓 保活机制已启动，每10分钟发送心跳`)
 })
 
 // 优雅关闭
