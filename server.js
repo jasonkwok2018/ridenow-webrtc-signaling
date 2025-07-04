@@ -94,6 +94,43 @@ wss.on('connection', (ws, req) => {
                     }
                     break
 
+                case 'start_location_sharing':
+                    if (userId && onlineUsers.has(userId)) {
+                        const user = onlineUsers.get(userId)
+                        user.isLocationSharingActive = true
+                        console.log(`🔄 开始位置共享: ${userId} (${message.userType})`)
+                    }
+                    break
+
+                case 'stop_location_sharing':
+                    if (userId && onlineUsers.has(userId)) {
+                        const user = onlineUsers.get(userId)
+                        user.isLocationSharingActive = false
+                        console.log(`⏹️ 停止位置共享: ${userId}`)
+                    }
+                    break
+
+                case 'subscribe_driver_location':
+                    if (userId && onlineUsers.has(userId)) {
+                        const user = onlineUsers.get(userId)
+                        if (!user.subscribedDrivers) {
+                            user.subscribedDrivers = new Set()
+                        }
+                        user.subscribedDrivers.add(message.driverId)
+                        console.log(`👀 乘客 ${userId} 订阅司机位置: ${message.driverId}`)
+                    }
+                    break
+
+                case 'unsubscribe_driver_location':
+                    if (userId && onlineUsers.has(userId)) {
+                        const user = onlineUsers.get(userId)
+                        if (user.subscribedDrivers) {
+                            user.subscribedDrivers.delete(message.driverId)
+                            console.log(`🚫 乘客 ${userId} 取消订阅司机位置: ${message.driverId}`)
+                        }
+                    }
+                    break
+
                 case 'request_ride':
                     console.log('🚗 [WebSocket] 收到乘客订单请求:', message)
                     const pickupLocation = {
@@ -186,17 +223,27 @@ function broadcastDriversToRider(riderWs) {
     }))
 }
 
-// 向所有乘客广播司机位置更新
+// 向订阅的乘客广播司机位置更新
 function broadcastDriverLocationToRiders(driver) {
+    // 只向位置共享激活的司机广播位置
+    if (!driver.isLocationSharingActive) {
+        return
+    }
+
     const riders = Array.from(onlineUsers.values())
         .filter(user => user.userType === 'rider' && user.ws)
 
     riders.forEach(rider => {
-        rider.ws.send(JSON.stringify({
-            type: 'driver-location-update',
-            driverId: driver.id,
-            location: driver.location
-        }))
+        // 检查乘客是否订阅了这个司机的位置
+        if (rider.subscribedDrivers && rider.subscribedDrivers.has(driver.id)) {
+            rider.ws.send(JSON.stringify({
+                type: 'driver-location-update',
+                driverId: driver.id,
+                location: driver.location,
+                timestamp: Date.now()
+            }))
+            console.log(`📍 向乘客 ${rider.id} 发送司机 ${driver.id} 位置更新`)
+        }
     })
 }
 
