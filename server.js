@@ -38,6 +38,20 @@ const wss = new WebSocket.Server({
     path: '/ws'
 })
 
+// 添加HTTP路由来处理WebSocket升级请求
+app.get('/ws', (req, res) => {
+    if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
+        // 这个请求应该被WebSocket服务器处理
+        res.status(426).send('Upgrade Required')
+    } else {
+        res.json({
+            message: 'WebSocket endpoint',
+            upgrade: 'Use WebSocket protocol to connect',
+            url: 'wss://ridenow-webrtc-signaling.onrender.com/ws'
+        })
+    }
+})
+
 // WebSocket连接处理
 wss.on('connection', (ws, req) => {
     console.log('🔗 新的WebSocket连接')
